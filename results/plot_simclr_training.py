@@ -255,6 +255,9 @@ tex_fonts = {
 
 plt.rcParams.update(tex_fonts)
 
+import matplotlib as mpl
+mpl.rcParams.update(mpl.rcParamsDefault)
+
 ax = plt.subplot(111)
 
 fig, ax1 = plt.subplots()
@@ -275,3 +278,5 @@ fig.legend(loc='lower right')
 ax1.grid(alpha=0.5)
 # fig.savefig('../results/{}.pdf'.format(time.time()), dpi=3000, bbox_inches='tight')
 fig.show()
+
+

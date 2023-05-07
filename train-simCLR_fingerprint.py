@@ -1,9 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# +
-# # !git clone https://github.com/bjader/quantum-neural-network.git
-# -
-
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 import argparse
 import getpass
@@ -55,7 +51,7 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
                     help='model arch: {"|".join(model_names)} (default: resnet50)')
 parser.add_argument('-j', '--workers', default=8, type=int, metavar='N',
                     help='number of data loading workers (default: 32)')
-parser.add_argument('--epochs', default=200, type=int, metavar='N',
+parser.add_argument('--epochs', default=300, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
@@ -143,9 +139,12 @@ parser.add_argument("--worker_id", type=int, default=0)
 parser.add_argument("--yaspi_defaults_path", default="yaspi_train_defaults.json")
 parser.add_argument("--exp_config", default="yaspi_train.json", type=Path)
 
-# global list to store accuracy of Top-1 
-acc1_list = [] 
+# list to draw graph
+# acc1_list = [] 
+batch_acc2_list = []
 acc2_list = []
+batches_list = []
+losses_list = []
 
 
 # --------------------------------------------------------------------------------
@@ -372,11 +371,12 @@ def main_worker(gpu, ngpus_per_node, args):
     for epoch in range(args.start_epoch, args.epochs):
         adjust_learning_rate(optimizer, epoch, args)
 
-        #print("check for deadlock")
         # train for one epoch
         train(train_loader, model, model_path, criterion, optimizer, epoch, args, repr_network_params, dhs_list,
                 dhs_positive_pair_list,
                 overlap_list, loss_list)
+        
+        acc2_list.append(np.mean(batch_acc2_list))
 
         if not args.save_batches:
             fname = 'checkpoint_{:04d}.path.tar'.format(epoch)
@@ -408,6 +408,8 @@ def train(train_loader, model, model_path, criterion, optimizer, epoch, args, re
 
     end = time.time()
 
+    batch_acc2_list.clear()
+    
     for batch_index, (images, _) in enumerate(train_loader):
         # measure data loading time
         data_time.update(time.time() - end)
@@ -425,7 +427,7 @@ def train(train_loader, model, model_path, criterion, optimizer, epoch, args, re
             images[1] = images[1].cuda(args.gpu, non_blocking=True)
             target = target.cuda(args.gpu, non_blocking=True)
 
-            # compute output
+        # compute output
         out_1 = model(x=images[0])
         out_2 = model(x=images[1])
 
@@ -451,8 +453,7 @@ def train(train_loader, model, model_path, criterion, optimizer, epoch, args, re
         losses.update(loss.item(), images[0].size(0))
         top1.update(acc1[0], 2 * args.batch_size)
         top2.update(acc2[0], 2 * args.batch_size)
-        acc1_list.append(top1)
-        acc2_list.append(top2)
+        batch_acc2_list.append(top2.avg.item())
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
@@ -652,25 +653,37 @@ def accuracy(output, target, topk=(1, 2)):
 if __name__ == '__main__':
     main()
 
-# # !pip install ipywidgets
-# # !jupyter nbextension enable --py widgetsnbextension
-# !python --version
-print(torch.version.cuda)
-print(torch.cuda.is_available())
-
+# +
 import os
+
+print(f'Acc2_list size: {len(acc2_list)}')
+
 f = open("Top2_Accuracy_fingerprint.txt", "w+")
 for acc in acc2_list:
-    f.write(f'{acc.avg}\n') # write Top1 average accuracy result into file
+    f.write(f'{acc}\n') # write Top2 average accuracy result into file
 f.close()
 
+# +
 import os
 import numpy as np
 import matplotlib.pyplot as plt
+
+def save_result_fig(result_path, version=0):
+    result_path = os.path.join('results', "Allen's Result",
+                                  'epochsize_{}-bsize_{}-tepochs_{}_{}_Top2_Acc_Fig.jpg'.format(2016, 128, 300, version))
+    #result_path = f'epochsize_{args.epoch.size}-bsize_{args.batch_size}-tepochs_{args.epochs}_{version}_Top2-Acc_Fig.jpg'
+    if os.path.exists(result_path):
+        return save_result_fig(result_path, version+1)
+    else:    
+        return result_path
+
+# args = parser.parse_args()
+version = 0
+
 avg_list = []
 plt.title('Top2 Avg. Accuracy of fingerprint dataset') # 圖表標題
-plt.xlabel("Data (epoch_size*batch_size)") # X軸文字
-plt.ylabel("Acuracy") # Y軸文字
+plt.xlabel("Epochs") # X軸文字
+plt.ylabel("Acuracy(%)") # Y軸文字
 plt.yticks(np.arange(0, 40, 5.0)) # set range
 with open('Top2_Accuracy_fingerprint.txt','r') as f:
     lines = f.readlines()
@@ -678,9 +691,18 @@ for line in lines:
     acc = round(float(line.replace('\n', '')), 3)
     avg_list.append(acc)
 plt.plot(avg_list)
+fig1 = plt.gcf() # get current figure
 plt.show()
-print(torch.__version__)
-print(torch.version.cuda)
+result_path = save_result_fig("")
+fig1.savefig(result_path, bbox_inches='tight')
+
+# +
+# # !pip install ipywidgets
+# # !jupyter nbextension enable --py widgetsnbextension
+# # !python --version
+# print(torch.version.cuda)
+# print(torch.cuda.is_available())
+# -
 
 
 
