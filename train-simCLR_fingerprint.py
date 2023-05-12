@@ -140,18 +140,17 @@ parser.add_argument("--yaspi_defaults_path", default="yaspi_train_defaults.json"
 parser.add_argument("--exp_config", default="yaspi_train.json", type=Path)
 
 # list to draw graph
-# acc1_list = [] 
 batch_acc2_list = []
 acc2_list = []
 batches_list = []
 losses_list = []
+args = parser.parse_args(args=['--gpu', '0', '--lr', '1e-3', '-b', '64', '-d', 'data/', '-w', '8']) # for jupyter notebook
 
 
 # --------------------------------------------------------------------------------
 
 def main():
-#     args = parser.parse_args()
-    args = parser.parse_args(args=['--gpu', '0', '--lr', '1e-3', '-b', '128', '-d', 'data/', '-w', '8'])
+#     args = parser.parse_args() # for command line
     # --------------------------------------------------------------------------------
     # Support cluster grid search
     if args.yaspify:
@@ -387,6 +386,7 @@ def main_worker(gpu, ngpus_per_node, args):
                     'arch': args.arch,
                     'state_dict': model.state_dict(),
                     'optimizer': optimizer.state_dict(),
+                    'loss': loss_list
                 }
                 save_checkpoint(ckpt, is_best=False, filename=checkpoint_name)
 
@@ -427,7 +427,7 @@ def train(train_loader, model, model_path, criterion, optimizer, epoch, args, re
             images[1] = images[1].cuda(args.gpu, non_blocking=True)
             target = target.cuda(args.gpu, non_blocking=True)
 
-        # compute output
+        # compute output [B, D]
         out_1 = model(x=images[0])
         out_2 = model(x=images[1])
 
@@ -668,23 +668,22 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 
-def save_result_fig(result_path, version=0):
+def save_result_fig(args, version=0):
     result_path = os.path.join('results', "Allen's Result",
-                                  'epochsize_{}-bsize_{}-tepochs_{}_{}_Top2_Acc_Fig.jpg'.format(2016, 128, 300, version))
+                                  'epochsize_{}-bsize_{}-tepochs_{}_{}_Top2_Acc_Fig.jpg'.format(args.epoch_size, args.batch_size, args.epochs, version))
     #result_path = f'epochsize_{args.epoch.size}-bsize_{args.batch_size}-tepochs_{args.epochs}_{version}_Top2-Acc_Fig.jpg'
     if os.path.exists(result_path):
         return save_result_fig(result_path, version+1)
     else:    
         return result_path
 
-# args = parser.parse_args()
 version = 0
 
 avg_list = []
 plt.title('Top2 Avg. Accuracy of fingerprint dataset') # 圖表標題
 plt.xlabel("Epochs") # X軸文字
 plt.ylabel("Acuracy(%)") # Y軸文字
-plt.yticks(np.arange(0, 40, 5.0)) # set range
+plt.yticks(np.arange(0, 80, 5.0)) # set range
 with open('Top2_Accuracy_fingerprint.txt','r') as f:
     lines = f.readlines()
 for line in lines:
@@ -693,18 +692,24 @@ for line in lines:
 plt.plot(avg_list)
 fig1 = plt.gcf() # get current figure
 plt.show()
-result_path = save_result_fig("")
+result_path = save_result_fig(args)
 fig1.savefig(result_path, bbox_inches='tight')
+# -
 
-# +
 # # !pip install ipywidgets
 # # !jupyter nbextension enable --py widgetsnbextension
 # # !python --version
-# print(torch.version.cuda)
-# print(torch.cuda.is_available())
-# -
+import torch
+print(torch.version.cuda)
+print(torch.cuda.is_available())
 
-
+checkpoint_path = os.path.join('model', 'selfsup', 'simclr', args.submission_time,
+                                  'SimCLR-{}-quantum_{}-backend_{}-classes_{}--ansatz_{}-netwidth_{}-nlayers_{}'
+                                  '-nsweeps_{}-activation_{}-shots_{}-epochsize_{}-bsize_{}-tepochs_{}_{}'.format(
+                                      args.arch, args.quantum, args.q_backend, args.classes, args.q_ansatz, args.width,
+                                      args.layers, args.q_sweeps, args.activation, args.shots, args.epoch_size,
+                                      args.batch_size, args.epochs, version))
+checkpoint = torch.load(checkpoint_path)
 
 
 

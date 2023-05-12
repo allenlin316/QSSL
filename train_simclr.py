@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 import argparse
 import getpass
@@ -134,12 +135,18 @@ parser.add_argument("--worker_id", type=int, default=0)
 parser.add_argument("--yaspi_defaults_path", default="yaspi_train_defaults.json")
 parser.add_argument("--exp_config", default="yaspi_train.json", type=Path)
 
-
 # --------------------------------------------------------------------------------
 
-def main():
-    args = parser.parse_args()
+# list to draw graph
+batch_acc2_list = []
+acc2_list = []
+batches_list = []
+losses_list = []
+args = parser.parse_args(args=['--gpu', '0', '--lr', '1e-3', '-b', '128', '-d', 'data/', '-w', '8']) # for jupyter notebook
 
+
+def main():
+#     args = parser.parse_args() for command line
     # --------------------------------------------------------------------------------
     # Support cluster grid search
     if args.yaspify:
@@ -311,6 +318,8 @@ def main_worker(gpu, ngpus_per_node, args):
         train(train_loader, model, model_path, criterion, optimizer, epoch, args, repr_network_params, dhs_list,
               dhs_positive_pair_list,
               overlap_list, loss_list)
+        
+        acc2_list.append(np.mean(batch_acc2_list))
 
         if not args.save_batches:
             fname = 'checkpoint_{:04d}.path.tar'.format(epoch)
@@ -341,6 +350,8 @@ def train(train_loader, model, model_path, criterion, optimizer, epoch, args, re
     model.train()
 
     end = time.time()
+    
+    batch_acc2_list.clear()
 
     for batch_index, (images, _) in enumerate(train_loader):
         # measure data loading time
@@ -385,6 +396,7 @@ def train(train_loader, model, model_path, criterion, optimizer, epoch, args, re
         losses.update(loss.item(), images[0].size(0))
         top1.update(acc1[0], 2 * args.batch_size)
         top2.update(acc2[0], 2 * args.batch_size)
+        batch_acc2_list.append(top2.avg.item())
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
@@ -583,3 +595,48 @@ def accuracy(output, target, topk=(1, 2)):
 
 if __name__ == '__main__':
     main()
+
+# +
+import os
+
+print(f'Acc2_list size: {len(acc2_list)}')
+
+f = open("Top2_Accuracy_CiFAR-10.txt", "w+")
+for acc in acc2_list:
+    f.write(f'{acc}\n') # write Top2 average accuracy result into file
+f.close()
+
+# +
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+
+def save_result_fig(args, version=0):
+    result_path = os.path.join('results', "Allen's Result",
+                                  'epochsize_{}-bsize_{}-tepochs_{}_{}_Top2_Acc_Fig.jpg'.format(args.epoch_size, args.batch_size, args.epochs, version))
+    #result_path = f'epochsize_{args.epoch.size}-bsize_{args.batch_size}-tepochs_{args.epochs}_{version}_Top2-Acc_Fig.jpg'
+    if os.path.exists(result_path):
+        return save_result_fig(result_path, version+1)
+    else:    
+        return result_path
+
+version = 0
+
+avg_list = []
+plt.title('Top2 Avg. Accuracy of CiFAR-10 dataset') # 圖表標題
+plt.xlabel("Epochs") # X軸文字
+plt.ylabel("Acuracy(%)") # Y軸文字
+plt.yticks(np.arange(0, 80, 5.0)) # set range
+with open('Top2_Accuracy_CiFAR-10.txt','r') as f:
+    lines = f.readlines()
+for line in lines:
+    acc = round(float(line.replace('\n', '')), 3)
+    avg_list.append(acc)
+plt.plot(avg_list)
+fig1 = plt.gcf() # get current figure
+plt.show()
+result_path = save_result_fig(args)
+fig1.savefig(result_path, bbox_inches='tight')
+# -
+
+

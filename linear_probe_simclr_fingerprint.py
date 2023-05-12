@@ -41,6 +41,7 @@ import itertools
 from yaspi.yaspi import Yaspi
 
 os.environ['KMP_WARNINGS'] = '0'
+os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
 model_names = sorted(name for name in models.__dict__
                      if name.islower() and not name.startswith("__")
@@ -52,15 +53,15 @@ parser.add_argument('-d', '--datadir', metavar='DIR', default="data", type=Path,
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet50',
                     choices=model_names,
                     help=f'model arch: {"|".join(model_names)} (default: resnet50)')
-parser.add_argument('-j', '--workers', default=32, type=int, metavar='N',
+parser.add_argument('-j', '--workers', default=8, type=int, metavar='N',
                     help='number of data loading workers (default: 32)')
-parser.add_argument('--epochs', default=10, type=int, metavar='N',
+parser.add_argument('--epochs', default=100, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
-parser.add_argument('--classes', default=10, type=int,
+parser.add_argument('--classes', default=336, type=int,
                     help='Number of classes in the training set (default:10)')
-parser.add_argument('-b', '--batch-size', default=256, type=int,
+parser.add_argument('-b', '--batch-size', default=64, type=int,
                     metavar='N',
                     help='mini-batch size (default: 256), this is the total '
                          'batch size of all GPUs on the current node when '
@@ -96,7 +97,7 @@ parser.add_argument('--batchnorm', dest='batchnorm', action='store_true',
 parser.add_argument('--identity', dest='identity', action='store_true',
                     help='If enabled, the test network is replaced by the identity. The previous and subsequent layer '
                          'still compress to n_qubits however.')
-parser.add_argument('-w', '--width', type=int, default=4,
+parser.add_argument('-w', '--width', type=int, default=8,
                     help='Width of the test network (default: 4). If quantum, this is the number of qubits.')
 parser.add_argument('--layers', type=int, default=2,
                     help='Number of layers in the test network (default: 2).')
@@ -135,11 +136,55 @@ parser.add_argument("--exp_config", default="yaspi_probe.json", type=Path)
 
 best_acc1 = 0
 acc1_list = []
-args = parser.parse_args(args=['--gpu', '0', '--pretrained', 'model/selfsup/simclr/SimCLR-resnet18-quantum_False-classes_10-netwidth_8-nlayers_2-identity_False-epochsize_50000-bsize_128-tepochs_200_0/checkpoint_0000.path.tar', '-a', 'resnet18']) # for jupyter notebook
+# --pretrained model/selfsup/resnet18-bsize_512-checkpoint_0020.path.tar \
+#     --gpu 0 -a resnet18
+args = parser.parse_args(args=['--pretrained', 'model/selfsup/simclr/SimCLR-resnet18-quantum_False-classes_336-netwidth_8-nlayers_2-identity_False-epochsize_2016-bsize_128-tepochs_300_0/checkpoint_0000.path.tar', '-a', 'resnet18']) # for jupyter notebook
 
+# +
+# 2023-3-12 custom dataset created by Allen LIN
+import torchvision.transforms as trns
+from PIL import Image
+import pandas as pd
+import os
+from scipy.io import loadmat
+from torch.utils.data import DataLoader
+from torch.utils.data.dataset import Dataset
+from torchvision import transforms
+import numpy as np
+import cv2
+import torch
+
+class fingerprintDataset(Dataset):
+    def __init__(self, annotations_file, img_dir, transform=None, target_transform=None):
+        self.img_labels = pd.read_csv(annotations_file)
+        self.img_dir = img_dir
+        self.transform = transform
+        self.target_transform = target_transform
+        self.targets = self.img_labels.iloc[:, 1] # label of the dataset
+        self.data = []
+        for i in range(len(self.img_labels)):
+            img_path = os.path.join(self.img_dir, self.img_labels.iloc[i, 0])
+            image = cv2.imread(img_path)
+            self.data.append(image)
+        self.data = np.array(self.data)
+    def __getitem__(self, idx):
+        img_path = os.path.join(self.img_dir, self.img_labels.iloc[idx, 0])
+        image = cv2.imread(img_path)
+        label = self.img_labels.iloc[idx, 1] 
+        if self.transform:
+            image = self.transform(image)
+            #image = image.cuda().unsqueeze(0)
+        if self.target_transform:
+            label = self.target_transform(label)
+        return image, label
+    def __len__(self):
+        return len(self.img_labels)
+
+
+# -
 
 def main():
-    #args = parser.parse_args() for command line
+    # args = parser.parse_args() for command line
 
     # --------------------------------------------------------------------------------
     # Support cluster grid search
@@ -337,15 +382,17 @@ def main_worker(gpu, ngpus_per_node, args):
 
     cudnn.benchmark = True
 
-    # Data loading code
-    # normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-    #                                 std=[0.229, 0.224, 0.225])
-
+    
+    annotations_file = "../contact-based_fingerprint/fingerprint_annotations.csv"
+    annotations_file_val = "../contact-based_fingerprint/fingerprint_annotations_val.csv"
+    img_dir_training = "../contact-based_fingerprint/first_session/"
+    #img_dir_val = "../contact-based_fingerprint/second_session/"
     # For CIFAR
     normalize = transforms.Normalize(mean=[0.4914, 0.4822, 0.4465],
                                      std=[0.2023, 0.1994, 0.2010])
-
+    
     augmentation = [
+        transforms.ToPILImage(), # to PIL format
         transforms.RandomResizedCrop(32),
         transforms.RandomApply([
             transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)  # not strengthened
@@ -359,28 +406,36 @@ def main_worker(gpu, ngpus_per_node, args):
 
     num_classes = args.classes
 
-    train_dataset = datasets.CIFAR10(root=args.datadir, train=True, download=True,
-                                     transform=transforms.Compose(augmentation))
 
+    train_dataset = fingerprintDataset(annotations_file, img_dir_training,
+                                       transform=transforms.Compose(augmentation))
+    
     train_labels = np.array(train_dataset.targets)
     train_idx = np.array(
-        [np.where(train_labels == i)[0] for i in range(0, num_classes)]).flatten()
-    print(f'train_idx.size: {train_idx.size}')
+        [np.where(train_labels == i)[0][:int(2016 / num_classes)] for i in range(0, num_classes)], dtype=object).flatten()
+    train_idx = np.hstack(train_idx)
     train_dataset.targets = train_labels[train_idx]
     train_dataset.data = train_dataset.data[train_idx]
+    print(f'train_dataset.data.shape: {train_dataset.data.shape}')
+    print(f'train_dataset.targets: {train_dataset.targets}')
+    
 
-    val_dataset = datasets.CIFAR10(root=args.datadir, train=False, download=True,
-                                   transform=transforms.Compose([
+    val_dataset = fingerprintDataset(annotations_file, img_dir_training,
+                                       transform=transforms.Compose([
+                                       transforms.ToPILImage(),
                                        transforms.ToTensor(),
                                        normalize,
-                                   ]))
+                                       ]))
+
 
     val_labels = np.array(val_dataset.targets)
     val_idx = np.array(
-        [np.where(val_labels == i)[0] for i in range(0, num_classes)]).flatten()
-    print(f'val_idx.size: {val_idx.size}')
+        [np.where(val_labels == i)[0][:int(2016 / num_classes)] for i in range(0, num_classes)], dtype=object).flatten()
+    val_idx = np.hstack(val_idx)
     val_dataset.targets = val_labels[val_idx]
     val_dataset.data = val_dataset.data[val_idx]
+    print(f'val_dataset.data.shape: {val_dataset.data.shape}')
+    print(f'val_dataset.targets: {val_dataset.targets}')
 
     train_sampler = None
 
@@ -648,3 +703,7 @@ def accuracy(output, target, topk=(1,)):
 
 if __name__ == '__main__':
     main()
+
+print(torch.cuda.is_available())
+
+
