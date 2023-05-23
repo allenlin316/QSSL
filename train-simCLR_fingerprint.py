@@ -29,14 +29,26 @@ import torchvision.models as models
 import torchvision.transforms as transforms
 from numpy.linalg import matrix_power
 
-# +
-# # !pip install qiskit.aqua==0.9.4
-# -
+from PIL import Image
+import pandas as pd
+from scipy.io import loadmat
+from torch.utils.data import DataLoader
+from torch.utils.data.dataset import Dataset
+import cv2
 
 import hybrid_resnet
 import moco.builder
 import moco.loader
 from yaspi.yaspi import Yaspi
+
+# +
+# # !pip install ipywidgets
+# # !jupyter nbextension enable --py widgetsnbextension
+# # !python --version
+# import torch
+# print(torch.version.cuda)
+# print(torch.cuda.is_available())
+# -
 
 os.environ['KMP_WARNINGS'] = '1'
 
@@ -51,15 +63,15 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
                     help='model arch: {"|".join(model_names)} (default: resnet50)')
 parser.add_argument('-j', '--workers', default=8, type=int, metavar='N',
                     help='number of data loading workers (default: 32)')
-parser.add_argument('--epochs', default=300, type=int, metavar='N',
+parser.add_argument('--epochs', default=200, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
-parser.add_argument('--epoch-size', default=2016, type=int,
-                    help='size of training set to use (default:50000, size of CIFAR10)')
-parser.add_argument('--classes', default=336, type=int,
-                    help='Number of classes in the training set (default:10)')
-parser.add_argument('-b', '--batch-size', default=256, type=int,
+parser.add_argument('--epoch-size', default=55270, type=int,
+                    help='size of training set to use (default:55270, size of SOCOFing Fingerprint Dataset)')
+parser.add_argument('--classes', default=600, type=int,
+                    help='Number of classes in the training set (default:600)')
+parser.add_argument('-b', '--batch-size', default=128, type=int,
                     metavar='N',
                     help='mini-batch size (default: 256), this is the total '
                          'batch size of all GPUs on the current node when '
@@ -141,10 +153,10 @@ parser.add_argument("--exp_config", default="yaspi_train.json", type=Path)
 
 # list to draw graph
 batch_acc2_list = []
-acc2_list = []
+train_acc2_list = []
 batches_list = []
-losses_list = []
-args = parser.parse_args(args=['--gpu', '0', '--lr', '1e-3', '-b', '64', '-d', 'data/', '-w', '8']) # for jupyter notebook
+train_loss_list = []
+args = parser.parse_args(args=['--gpu', '0', '--lr', '1e-3', '-b', '256', '-d', 'data/', '-w', '8']) # for jupyter notebook
 
 
 # --------------------------------------------------------------------------------
@@ -214,38 +226,25 @@ def main():
 
 # +
 # 2023-3-12 custom dataset created by Allen LIN
-import torchvision.transforms as trns
-from PIL import Image
-import pandas as pd
-import os
-from scipy.io import loadmat
-from torch.utils.data import DataLoader
-from torch.utils.data.dataset import Dataset
-from torchvision import transforms
-import numpy as np
-import cv2
-import torch
 
 class fingerprintDataset(Dataset):
     def __init__(self, annotations_file, img_dir, transform=None, target_transform=None):
         self.img_labels = pd.read_csv(annotations_file)
         self.img_dir = img_dir
         self.transform = transform
-        self.target_transform = target_transform
         self.targets = self.img_labels.iloc[:, 1] # label of the dataset
-        self.data = []
+        self.target_transform = target_transform
+        img_path = os.path.join(self.img_dir, self.img_labels.iloc[0, 0])
+        image = cv2.imread(img_path)
+        self.data = np.empty((len(self.img_labels), *image.shape), dtype=np.uint8)
         for i in range(len(self.img_labels)):
-            img_path = os.path.join(self.img_dir, self.img_labels.iloc[i, 0])
-            image = cv2.imread(img_path)
-            self.data.append(image)
-        self.data = np.array(self.data)
+            self.data[i] = image
     def __getitem__(self, idx):
         img_path = os.path.join(self.img_dir, self.img_labels.iloc[idx, 0])
         image = cv2.imread(img_path)
         label = self.img_labels.iloc[idx, 1]
         if self.transform:
             image = self.transform(image)
-#             image = image.cuda().unsqueeze(0)
         if self.target_transform:
             label = self.target_transform(label)
         return image, label
@@ -298,12 +297,9 @@ def main_worker(gpu, ngpus_per_node, args):
 
     cudnn.benchmark = True
 
-    # Normalization for ImageNet
-    # normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-    #                                 std=[0.229, 0.224, 0.225])
 
-    annotations_file = "../contact-based_fingerprint/fingerprint_annotations.csv"
-    img_dir = "../contact-based_fingerprint/first_session/"
+    annotations_file = os.path.join("../", "kaggle_fingerprint", "kaggle_fingerprint_annotations.csv")
+    img_dir = os.path.join("../", "kaggle_fingerprint", "SOCOFing", "All")
     # Normalization for CIFAR
     normalize = transforms.Normalize(mean=[0.4914, 0.4822, 0.4465],
                                      std=[0.2023, 0.1994, 0.2010])
@@ -325,7 +321,9 @@ def main_worker(gpu, ngpus_per_node, args):
     train_dataset = fingerprintDataset(annotations_file, img_dir,
                                        transform=moco.loader.TwoCropsTransform(
                                          transforms.Compose(augmentation)))
-    print(train_dataset.data.shape)
+#     image, label = train_dataset[0]
+#     print(f'image: {image}, label: {label}')
+#     print(train_dataset.data.shape)
 
 
     train_labels = np.array(train_dataset.targets)
@@ -333,9 +331,7 @@ def main_worker(gpu, ngpus_per_node, args):
     train_idx = np.array(
         [np.where(train_labels == i)[0][:int(args.epoch_size / num_classes)+1] for i in range(0, num_classes+1)], dtype=object).flatten()
     train_idx = np.hstack(train_idx)
-
     train_dataset.targets = train_labels[train_idx]
-    #print(f'train_dataset.data: {train_dataset.data}')
     train_dataset.data = train_dataset.data[train_idx]
 
     if len(train_idx) < args.epoch_size:
@@ -375,7 +371,8 @@ def main_worker(gpu, ngpus_per_node, args):
                 dhs_positive_pair_list,
                 overlap_list, loss_list)
         
-        acc2_list.append(np.mean(batch_acc2_list))
+        train_loss_list.append(np.mean(loss_list))
+        train_acc2_list.append(np.mean(batch_acc2_list))
 
         if not args.save_batches:
             fname = 'checkpoint_{:04d}.path.tar'.format(epoch)
@@ -653,65 +650,49 @@ def accuracy(output, target, topk=(1, 2)):
 if __name__ == '__main__':
     main()
 
-# +
-import os
-
-print(f'Acc2_list size: {len(acc2_list)}')
-
-f = open("Top2_Accuracy_fingerprint.txt", "w+")
-for acc in acc2_list:
-    f.write(f'{acc}\n') # write Top2 average accuracy result into file
-f.close()
 
 # +
-import os
-import numpy as np
-import matplotlib.pyplot as plt
-
-def save_result_fig(args, version=0):
-    result_path = os.path.join('results', "Allen's Result",
-                                  'epochsize_{}-bsize_{}-tepochs_{}_{}_Top2_Acc_Fig.jpg'.format(args.epoch_size, args.batch_size, args.epochs, version))
-    #result_path = f'epochsize_{args.epoch.size}-bsize_{args.batch_size}-tepochs_{args.epochs}_{version}_Top2-Acc_Fig.jpg'
+def print_loss(train_loss):
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title("Loss")
+    plt.plot(train_loss,  label = "Training") # training loss curve
+    #plt.plot(test_loss,  label = "Validation") # training loss curve
+    plt.legend(loc = 'upper left')
+    fig = plt.gcf() # get current figure
+    plt.show()
+    return fig
+    
+def print_acc(train_acc):
+    plt.xlabel('Epoch')
+    plt.ylabel('Accuracy(%)')
+    plt.title("Accuracy")
+    plt.plot(train_acc,  label = "Training") # training loss curve
+    #plt.plot(test_acc,  label = "Validation") # training loss curve
+    plt.legend(loc = 'upper left')
+    fig = plt.gcf() # get current figure
+    plt.show()
+    return fig
+    
+def save_result_fig(args, name, version=0):
+    result_path = os.path.join('results', "Allen's Result", "SOCOFing_Fingerprint",
+                                  'epochsize_{}-bsize_{}-tepochs_{}_{}_{}_Fig.jpg'.format(args.epoch_size, args.batch_size, args.epochs, name, version))
     if os.path.exists(result_path):
-        return save_result_fig(result_path, version+1)
+        return save_result_fig(args, name, version+1)
     else:    
         return result_path
 
-version = 0
 
-avg_list = []
-plt.title('Top2 Avg. Accuracy of fingerprint dataset') # 圖表標題
-plt.xlabel("Epochs") # X軸文字
-plt.ylabel("Acuracy(%)") # Y軸文字
-plt.yticks(np.arange(0, 80, 5.0)) # set range
-with open('Top2_Accuracy_fingerprint.txt','r') as f:
-    lines = f.readlines()
-for line in lines:
-    acc = round(float(line.replace('\n', '')), 3)
-    avg_list.append(acc)
-plt.plot(avg_list)
-fig1 = plt.gcf() # get current figure
-plt.show()
-result_path = save_result_fig(args)
-fig1.savefig(result_path, bbox_inches='tight')
+# +
+import matplotlib.pyplot as plt
+
+fig_loss = print_loss(train_loss_list)
+fig_loss_path = save_result_fig(args, "Loss")
+fig_acc = print_acc(train_acc2_list)
+fig_acc_path = save_result_fig(args, "Acc")
+ # 將訓練結果存起來
+fig_loss.savefig(fig_loss_path, bbox_inches='tight')
+fig_acc.savefig(fig_acc_path, bbox_inches='tight')
 # -
-
-# # !pip install ipywidgets
-# # !jupyter nbextension enable --py widgetsnbextension
-# # !python --version
-import torch
-print(torch.version.cuda)
-print(torch.cuda.is_available())
-
-checkpoint_path = os.path.join('model', 'selfsup', 'simclr', args.submission_time,
-                                  'SimCLR-{}-quantum_{}-backend_{}-classes_{}--ansatz_{}-netwidth_{}-nlayers_{}'
-                                  '-nsweeps_{}-activation_{}-shots_{}-epochsize_{}-bsize_{}-tepochs_{}_{}'.format(
-                                      args.arch, args.quantum, args.q_backend, args.classes, args.q_ansatz, args.width,
-                                      args.layers, args.q_sweeps, args.activation, args.shots, args.epoch_size,
-                                      args.batch_size, args.epochs, version))
-checkpoint = torch.load(checkpoint_path)
-
-
-
 
 

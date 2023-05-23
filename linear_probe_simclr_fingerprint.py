@@ -138,7 +138,7 @@ best_acc1 = 0
 acc1_list = []
 # --pretrained model/selfsup/resnet18-bsize_512-checkpoint_0020.path.tar \
 #     --gpu 0 -a resnet18
-args = parser.parse_args(args=['--pretrained', 'model/selfsup/simclr/SimCLR-resnet18-quantum_False-classes_336-netwidth_8-nlayers_2-identity_False-epochsize_2016-bsize_128-tepochs_300_0/checkpoint_0000.path.tar', '-a', 'resnet18']) # for jupyter notebook
+args = parser.parse_args(args=['--gpu', '0', '--pretrained', 'model/selfsup/simclr/SimCLR-resnet18-quantum_False-classes_336-netwidth_8-nlayers_2-identity_False-epochsize_2016-bsize_128-tepochs_300_0/checkpoint_0000.path.tar', '-a', 'resnet18']) # for jupyter notebook
 
 # +
 # 2023-3-12 custom dataset created by Allen LIN
@@ -412,7 +412,7 @@ def main_worker(gpu, ngpus_per_node, args):
     
     train_labels = np.array(train_dataset.targets)
     train_idx = np.array(
-        [np.where(train_labels == i)[0][:int(2016 / num_classes)] for i in range(0, num_classes)], dtype=object).flatten()
+        [np.where(train_labels == i)[0][:int(2016 / num_classes)+1] for i in range(0, num_classes+1)], dtype=object).flatten()
     train_idx = np.hstack(train_idx)
     train_dataset.targets = train_labels[train_idx]
     train_dataset.data = train_dataset.data[train_idx]
@@ -420,9 +420,10 @@ def main_worker(gpu, ngpus_per_node, args):
     print(f'train_dataset.targets: {train_dataset.targets}')
     
 
-    val_dataset = fingerprintDataset(annotations_file, img_dir_training,
+    val_dataset = fingerprintDataset(annotations_file_val, img_dir_training,
                                        transform=transforms.Compose([
                                        transforms.ToPILImage(),
+                                       transforms.Resize((200, 200)),
                                        transforms.ToTensor(),
                                        normalize,
                                        ]))
@@ -430,7 +431,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     val_labels = np.array(val_dataset.targets)
     val_idx = np.array(
-        [np.where(val_labels == i)[0][:int(2016 / num_classes)] for i in range(0, num_classes)], dtype=object).flatten()
+        [np.where(val_labels == i)[0][:int(1440 / num_classes)+1] for i in range(0, num_classes+1)], dtype=object).flatten()
     val_idx = np.hstack(val_idx)
     val_dataset.targets = val_labels[val_idx]
     val_dataset.data = val_dataset.data[val_idx]
