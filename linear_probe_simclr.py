@@ -228,6 +228,7 @@ def main():
         main_worker(args.gpu, ngpus_per_node, args)
 
 
+# +
 def main_worker(gpu, ngpus_per_node, args):
     global best_acc1
     global acc1_list
@@ -362,12 +363,11 @@ def main_worker(gpu, ngpus_per_node, args):
     train_dataset = datasets.CIFAR10(root=args.datadir, train=True, download=True,
                                      transform=transforms.Compose(augmentation))
 
-    train_labels = np.array(train_dataset.targets)
-    train_idx = np.array(
-        [np.where(train_labels == i)[0] for i in range(0, num_classes)]).flatten()
-    print(f'train_idx.size: {train_idx.size}')
-    train_dataset.targets = train_labels[train_idx]
-    train_dataset.data = train_dataset.data[train_idx]
+#     train_labels = np.array(train_dataset.targets)
+#     train_idx = np.array(
+#         [np.where(train_labels == i)[0] for i in range(0, num_classes)]).flatten()
+#     train_dataset.targets = train_labels[train_idx]
+#     train_dataset.data = train_dataset.data[train_idx]
 
     val_dataset = datasets.CIFAR10(root=args.datadir, train=False, download=True,
                                    transform=transforms.Compose([
@@ -375,12 +375,12 @@ def main_worker(gpu, ngpus_per_node, args):
                                        normalize,
                                    ]))
 
-    val_labels = np.array(val_dataset.targets)
-    val_idx = np.array(
-        [np.where(val_labels == i)[0] for i in range(0, num_classes)]).flatten()
-    print(f'val_idx.size: {val_idx.size}')
-    val_dataset.targets = val_labels[val_idx]
-    val_dataset.data = val_dataset.data[val_idx]
+#     val_labels = np.array(val_dataset.targets)
+#     val_idx = np.array(
+#         [np.where(val_labels == i)[0] for i in range(0, num_classes)]).flatten()
+#     print(f'val_idx.size: {val_idx.size}')
+#     val_dataset.targets = val_labels[val_idx]
+#     val_dataset.data = val_dataset.data[val_idx]
 
     train_sampler = None
 
@@ -426,6 +426,8 @@ def main_worker(gpu, ngpus_per_node, args):
             sanity_check(model.state_dict(), args.pretrained)
 
 
+# -
+
 def train(train_loader, model, criterion, optimizer, epoch, args):
     batch_time = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
@@ -457,12 +459,13 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
 
         # compute output
         output = model(images)
-        print(f'output.shape: {output.shape}')
-        print(f'target.shape: {target.shape}')
-        print(f'output: {output}')
-        print(f'target: {target}')
+#         print(f'output.shape: {output.shape}')
+#         print(f'target.shape: {target.shape}')
+#         print(f'output: {output}')
+#         print(f'target: {target}')
+        print(f'target.min(): {target.min()}, target.max(): {target.max()}')
         loss = criterion(output, target)
-        print(f'loss: {loss}')
+#         print(f'loss: {loss}')
 
         # measure accuracy and record loss
         acc1, acc2 = accuracy(output, target, topk=(1, 2))

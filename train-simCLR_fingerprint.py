@@ -63,11 +63,11 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
                     help='model arch: {"|".join(model_names)} (default: resnet50)')
 parser.add_argument('-j', '--workers', default=8, type=int, metavar='N',
                     help='number of data loading workers (default: 32)')
-parser.add_argument('--epochs', default=200, type=int, metavar='N',
+parser.add_argument('--epochs', default=30, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
-parser.add_argument('--epoch-size', default=55270, type=int,
+parser.add_argument('--epoch-size', default=4800, type=int,
                     help='size of training set to use (default:55270, size of SOCOFing Fingerprint Dataset)')
 parser.add_argument('--classes', default=600, type=int,
                     help='Number of classes in the training set (default:600)')
@@ -156,10 +156,40 @@ batch_acc2_list = []
 train_acc2_list = []
 batches_list = []
 train_loss_list = []
-args = parser.parse_args(args=['--gpu', '0', '--lr', '1e-3', '-b', '256', '-d', 'data/', '-w', '8']) # for jupyter notebook
+args = parser.parse_args(args=['--gpu', '0', '--lr', '1e-3', '-b', '32', '-d', 'data/', '-w', '8']) # for jupyter notebook
 
 
 # --------------------------------------------------------------------------------
+
+# +
+# 2023-3-12 custom dataset created by Allen LIN
+
+class fingerprintDataset(Dataset):
+    def __init__(self, annotations_file, img_dir, transform=None, target_transform=None):
+        self.img_labels = pd.read_csv(annotations_file)
+        self.img_dir = img_dir
+        self.transform = transform
+        self.targets = self.img_labels.iloc[:, 1] # label of the dataset
+        self.target_transform = target_transform
+        img_path = os.path.join(self.img_dir, self.img_labels.iloc[0, 0])
+        image = cv2.imread(img_path)
+        self.data = np.empty((len(self.img_labels), *image.shape), dtype=np.uint8)
+        for i in range(len(self.img_labels)):
+            self.data[i] = image
+    def __getitem__(self, idx):
+        img_path = os.path.join(self.img_dir, self.img_labels.iloc[idx, 0])
+        image = cv2.imread(img_path)
+        label = self.img_labels.iloc[idx, 1]
+        if self.transform:
+            image = self.transform(image)
+        if self.target_transform:
+            label = self.target_transform(label)
+        return image, label
+    def __len__(self):
+        return len(self.img_labels)
+
+
+# -
 
 def main():
 #     args = parser.parse_args() # for command line
@@ -225,35 +255,6 @@ def main():
 
 
 # +
-# 2023-3-12 custom dataset created by Allen LIN
-
-class fingerprintDataset(Dataset):
-    def __init__(self, annotations_file, img_dir, transform=None, target_transform=None):
-        self.img_labels = pd.read_csv(annotations_file)
-        self.img_dir = img_dir
-        self.transform = transform
-        self.targets = self.img_labels.iloc[:, 1] # label of the dataset
-        self.target_transform = target_transform
-        img_path = os.path.join(self.img_dir, self.img_labels.iloc[0, 0])
-        image = cv2.imread(img_path)
-        self.data = np.empty((len(self.img_labels), *image.shape), dtype=np.uint8)
-        for i in range(len(self.img_labels)):
-            self.data[i] = image
-    def __getitem__(self, idx):
-        img_path = os.path.join(self.img_dir, self.img_labels.iloc[idx, 0])
-        image = cv2.imread(img_path)
-        label = self.img_labels.iloc[idx, 1]
-        if self.transform:
-            image = self.transform(image)
-        if self.target_transform:
-            label = self.target_transform(label)
-        return image, label
-    def __len__(self):
-        return len(self.img_labels)
-
-
-# -
-
 def main_worker(gpu, ngpus_per_node, args):
     args.gpu = gpu
     if args.gpu is not None:
@@ -271,7 +272,7 @@ def main_worker(gpu, ngpus_per_node, args):
     else:
         print('=> Training with CPU.')
 
-    torchsummary.summary(model, (3, 32, 32))
+    torchsummary.summary(model, (3, 103, 96))
 
     # define loss function (criterion) and optimizer
     criterion = None
@@ -298,11 +299,12 @@ def main_worker(gpu, ngpus_per_node, args):
     cudnn.benchmark = True
 
 
-    annotations_file = os.path.join("../", "kaggle_fingerprint", "kaggle_fingerprint_annotations.csv")
+    annotations_file = os.path.join("../", "kaggle_fingerprint", "kaggle_training_fingerprint_annotations.csv")
     img_dir = os.path.join("../", "kaggle_fingerprint", "SOCOFing", "All")
-    # Normalization for CIFAR
-    normalize = transforms.Normalize(mean=[0.4914, 0.4822, 0.4465],
-                                     std=[0.2023, 0.1994, 0.2010])
+   
+    # Normalization for SOCOFing Fingerprint dataset
+    normalize = transforms.Normalize(mean=[0.5071, 0.5071, 0.5071],
+                                     std=[0.4107, 0.4107, 0.4107])
 
     augmentation = [
         transforms.ToPILImage(), # to PIL format
@@ -326,19 +328,19 @@ def main_worker(gpu, ngpus_per_node, args):
 #     print(train_dataset.data.shape)
 
 
-    train_labels = np.array(train_dataset.targets)
-    num_classes = args.classes
-    train_idx = np.array(
-        [np.where(train_labels == i)[0][:int(args.epoch_size / num_classes)+1] for i in range(0, num_classes+1)], dtype=object).flatten()
-    train_idx = np.hstack(train_idx)
-    train_dataset.targets = train_labels[train_idx]
-    train_dataset.data = train_dataset.data[train_idx]
+#     train_labels = np.array(train_dataset.targets)
+#     num_classes = args.classes
+#     train_idx = np.array(
+#         [np.where(train_labels == i)[0][:int(args.epoch_size / num_classes)+1] for i in range(0, num_classes+1)], dtype=object).flatten()
+#     train_idx = np.hstack(train_idx)
+#     train_dataset.targets = train_labels[train_idx]
+#     train_dataset.data = train_dataset.data[train_idx]
 
-    if len(train_idx) < args.epoch_size:
-        logging.warning(
-            f"Requested epoch size ({args.epoch_size}) is greater than available images for chosen classes "
-            f"({len(train_idx)}). Training will use the set of available images, output files will save requested "
-            f"epoch size.")
+#     if len(train_idx) < args.epoch_size:
+#         logging.warning(
+#             f"Requested epoch size ({args.epoch_size}) is greater than available images for chosen classes "
+#             f"({len(train_idx)}). Training will use the set of available images, output files will save requested "
+#             f"epoch size.")
 
     train_sampler = None
     train_loader = torch.utils.data.DataLoader(
@@ -387,6 +389,8 @@ def main_worker(gpu, ngpus_per_node, args):
                 }
                 save_checkpoint(ckpt, is_best=False, filename=checkpoint_name)
 
+
+# -
 
 def train(train_loader, model, model_path, criterion, optimizer, epoch, args, repr_network_params, dhs_list,
           dhs_positive_pair_list, overlap_list, loss_list):
