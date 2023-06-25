@@ -294,3 +294,7 @@ dmypy.json
 .prof
 
 # End of https://www.toptal.com/developers/gitignore/api/osx,macos,pycharm,python
+SOCOFing/
+socofing/
+*.csv
+*.zip
