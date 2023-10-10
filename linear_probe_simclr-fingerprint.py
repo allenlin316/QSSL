@@ -64,13 +64,13 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet50',
                     help=f'model arch: {"|".join(model_names)} (default: resnet50)')
 parser.add_argument('-j', '--workers', default=8, type=int, metavar='N',
                     help='number of data loading workers (default: 32)')
-parser.add_argument('--epochs', default=30, type=int, metavar='N',
+parser.add_argument('--epochs', default=5, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
 parser.add_argument('--classes', default=600, type=int,
                     help='Number of classes in the training set (default:10)')
-parser.add_argument('-b', '--batch-size', default=64, type=int,
+parser.add_argument('-b', '--batch-size', default=256, type=int,
                     metavar='N',
                     help='mini-batch size (default: 256), this is the total '
                          'batch size of all GPUs on the current node when '
@@ -148,7 +148,8 @@ acc1_list = []
 train_loss_list = []
 train_acc_list = []
 test_loss_list = []
-args = parser.parse_args(args=['--gpu', '0', '--pretrained', 'model/selfsup/simclr/SimCLR-resnet18-quantum_False-classes_600-netwidth_8-nlayers_2-identity_False-epochsize_4800-bsize_32-tepochs_30_0/checkpoint_0029.path.tar', '-a', 'resnet18']) # for jupyter notebook
+# python linear_probe_simclr.py --pretrained model/selfsup/path_to_checkpoint_0000.path.tar -q --q_backend qasm_simulator --q_ansatz sim_circ_14_half -w 8 --classes 5
+args = parser.parse_args(args=['--gpu', '0', '--pretrained', 'model/selfsup/simclr/SimCLR-resnet34-quantum_False-classes_600-netwidth_8-nlayers_2-identity_False-epochsize_6000-bsize_128-tepochs_15_0/checkpoint_0014_0036.path.tar', '-q', '--q_backend', 'qasm_simulator', '--q_ansatz', 'sim_circ_14_half', '-w', '8', '-a', 'resnet18']) # for jupyter notebook
 #args = parser.parse_args()
 
 # +
@@ -168,7 +169,7 @@ class fingerprintDataset(Dataset):
             self.data[i] = image
     def __getitem__(self, idx):
         img_path = os.path.join(self.img_dir, self.img_labels.iloc[idx, 0])
-        image = cv2.imread(img_path)
+        image = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
         label = self.img_labels.iloc[idx, 1]
         if self.transform:
             image = self.transform(image)
@@ -381,21 +382,21 @@ def main_worker(gpu, ngpus_per_node, args):
 
     cudnn.benchmark = True
     
-    training_annotations_file = os.path.join("..", "kaggle_fingerprint", "kaggle_training_fingerprint_annotations.csv")
-    validation_annotations_file = os.path.join("..", "kaggle_fingerprint", "kaggle_validation_fingerprint_annotations.csv")
-    img_dir = os.path.join("..", "kaggle_fingerprint", "SOCOFing", "All")
+    training_annotations_file = os.path.join("kaggle_fingerprint", "kaggle_validation_fingerprint_annotations.csv") # 暫時改成 validation (測試小資料)
+    validation_annotations_file = os.path.join("kaggle_fingerprint", "kaggle_testing_fingerprint_annotations.csv")
+    img_dir = os.path.join("kaggle_fingerprint", "SOCOFing", "All")
 
      # Normalization for SOCOFing Fingerprint dataset
-    normalize = transforms.Normalize(mean=[0.5071, 0.5071, 0.5071],
-                                     std=[0.4107, 0.4107, 0.4107])
+    normalize = transforms.Normalize(mean=[0.5071],
+                                     std=[0.4107])
 
     augmentation = [
         transforms.ToPILImage(), # to PIL format
         transforms.Resize((90, 90)),
         transforms.RandomResizedCrop(32),
-        transforms.RandomApply([
-            transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)  # not strengthened
-        ], p=0.8),
+#         transforms.RandomApply([
+#             transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)  # not strengthened
+#         ], p=0.8),
         transforms.RandomGrayscale(p=0.2),
         # transforms.RandomApply([moco.loader.GaussianBlur([.1, 2.])], p=0.5),
         transforms.RandomHorizontalFlip(p=0.5),
@@ -409,7 +410,7 @@ def main_worker(gpu, ngpus_per_node, args):
     val_dataset = fingerprintDataset(validation_annotations_file, img_dir,
                                      transform=transforms.Compose([
                                        transforms.ToPILImage(), # to PIL format
-                                       transforms.Resize((90, 90)),
+                                       transforms.Resize((32, 32)),
                                        transforms.ToTensor(),
                                        normalize,
                                     ]))
@@ -470,18 +471,18 @@ def main_worker(gpu, ngpus_per_node, args):
 
         # train for one epoch
         avg_loss, avg_acc= train(train_loader, model, criterion, optimizer, epoch, args)
-        train_loss_list.append(avg_loss)
-        train_acc_list.append(avg_acc)
+        #train_loss_list.append(avg_loss)
+        #train_acc_list.append(avg_acc)
         
         # evaluate on validation set
         avg_loss, acc1 = validate(val_loader, model, criterion, args)
-        test_loss_list.append(avg_loss)
+        #test_loss_list.append(avg_loss)
         
         # remember best acc@1 and save checkpoint
         is_best = acc1 > best_acc1
         best_acc1 = max(acc1, best_acc1)
         # add acc1 to list for printing
-        acc1_list.append(round(acc1.item(), 3))
+        #acc1_list.append(round(acc1.item(), 3))
         print(acc1_list)
 
         save_checkpoint({
@@ -521,6 +522,8 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
     total_loss, total_correct = 0, 0 # for calculate avg loss
 
     end = time.time()
+    global train_acc_list
+    global train_loss_list
     for i, (images, target) in enumerate(train_loader):
         # measure data loading time
         data_time.update(time.time() - end)
@@ -534,6 +537,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         #print(f'target.min(): {target.min()}, target.max(): {target.max()}')
         loss = criterion(output, target)
         total_loss += loss.item()
+        train_loss_list += [loss.item()]
 
         # measure accuracy and record loss
         acc1, acc2 = accuracy(output, target, topk=(1, 2))
@@ -541,6 +545,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         top1.update(acc1[0], images.size(0))
         top2.update(acc2[0], images.size(0))
         total_correct += top1.val.item()
+        train_acc_list += [top1.avg]
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
@@ -571,6 +576,8 @@ def validate(val_loader, model, criterion, args):
     model.eval()
     num_batch = len(val_loader) # # 批次數量
     total_loss = 0 # 定義平均 loss 用
+    global test_loss_list
+    global acc1_list
 
     with torch.no_grad():
         end = time.time()
@@ -583,12 +590,14 @@ def validate(val_loader, model, criterion, args):
             output = model(images)
             loss = criterion(output, target)
             total_loss += loss.item()
+            test_loss_list += [loss.item()]
 
             # measure accuracy and record loss
             acc1, acc2 = accuracy(output, target, topk=(1, 2))
             losses.update(loss.item(), images.size(0))
             top1.update(acc1[0], images.size(0))
             top2.update(acc2[0], images.size(0))
+            acc1_list += [top1.avg.item()]
     
             # measure elapsed time
             batch_time.update(time.time() - end)
@@ -728,31 +737,29 @@ if __name__ == '__main__':
 
 
 # +
-def print_loss(train_loss, test_loss):
-    plt.xlabel('Epoch')
+def save_loss(train_loss, test_loss, save_path):
+    plt.clf()  # Clear the figure
+    plt.xlabel('Training Batches')
     plt.ylabel('Loss')
     plt.title("Linear Evaluation Loss")
     plt.plot(train_loss,  label = "Training") # training loss curve
     plt.plot(test_loss,  label = "Validation") # testing loss curve
     plt.legend(loc = 'upper left')
-    fig = plt.gcf() # get current figure
-    plt.show()
-    return fig
+    plt.savefig(save_path, bbox_inches='tight')
     
-def print_acc(train_acc, test_acc):
-    plt.xlabel('Epoch')
+def save_acc(train_acc, test_acc, save_path):
+    plt.clf()  # Clear the figure
+    plt.xlabel('Training Batches')
     plt.ylabel('Accuracy(%)')
     plt.title("Top1 Accuracy")
     plt.plot(train_acc,  label = "Training") # training acc curve
     plt.plot(test_acc,  label = "Validation") # testing acc curve
     plt.legend(loc = 'upper left')
-    fig = plt.gcf() # get current figure
-    plt.show()
-    return fig
+    plt.savefig(save_path, bbox_inches='tight')
     
 def save_result_fig(args, name, version=0):
-    result_path = os.path.join('results', "Allen's Result", "SOCOFing_Fingerprint", "Linear Evaluation",
-                                  'epochsize_{}-bsize_{}-tepochs_{}_{}_{}_Fig.jpg'.format("55270", args.batch_size, args.epochs, name, version))
+    result_path = os.path.join('results', "Allen's Result", "SOCOFing_Fingerprint", "SimCLR", "Linear Evaluation",
+                                  'quantum_epochsize_{}-bsize_{}-tepochs_{}_{}_{}_Fig.jpg'.format("55270", args.batch_size, args.epochs, name, version))
     if os.path.exists(result_path):
         return save_result_fig(args, name, version+1)
     else:    
@@ -762,13 +769,10 @@ def save_result_fig(args, name, version=0):
 # +
 import matplotlib.pyplot as plt
 
-fig_loss = print_loss(train_loss_list, test_loss_list)
 fig_loss_path = save_result_fig(args, "Loss")
-fig_acc = print_acc(train_acc_list, acc1_list)
+fig_loss = save_loss(train_loss_list, test_loss_list, fig_loss_path)
 fig_acc_path = save_result_fig(args, "Acc")
- # 將訓練結果存起來
-fig_loss.savefig(fig_loss_path, bbox_inches='tight')
-fig_acc.savefig(fig_acc_path, bbox_inches='tight')
+fig_acc = save_acc(train_acc_list, acc1_list, fig_acc_path)
 # -
 
 

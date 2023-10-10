@@ -35,6 +35,7 @@ from scipy.io import loadmat
 from torch.utils.data import DataLoader
 from torch.utils.data.dataset import Dataset
 import cv2
+import matplotlib.pyplot as plt
 
 import hybrid_resnet
 import moco.builder
@@ -63,11 +64,11 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
                     help='model arch: {"|".join(model_names)} (default: resnet50)')
 parser.add_argument('-j', '--workers', default=8, type=int, metavar='N',
                     help='number of data loading workers (default: 32)')
-parser.add_argument('--epochs', default=30, type=int, metavar='N',
+parser.add_argument('--epochs', default=10, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
-parser.add_argument('--epoch-size', default=4800, type=int,
+parser.add_argument('--epoch-size', default=6000, type=int,
                     help='size of training set to use (default:55270, size of SOCOFing Fingerprint Dataset)')
 parser.add_argument('--classes', default=600, type=int,
                     help='Number of classes in the training set (default:600)')
@@ -152,12 +153,11 @@ parser.add_argument("--yaspi_defaults_path", default="yaspi_train_defaults.json"
 parser.add_argument("--exp_config", default="yaspi_train.json", type=Path)
 
 # list to draw graph
-batch_acc2_list = []
 train_acc2_list = []
-batches_list = []
 train_loss_list = []
-args = parser.parse_args(args=['--gpu', '0', '--lr', '1e-3', '-b', '32', '-d', 'data/', '-w', '8']) # for jupyter notebook
-
+# python train_simclr.py -q --q_backend qasm_simulator --q_ansatz sim_circ_14_half -w 8 --classes 5 --save-batches --epochs 2
+args = parser.parse_args(args=['--gpu', '0', '--lr', '1e-3', '--epochs', '15', '-b', '128', '--save-batches', '-w', '8', '--epoch-size', '4800']) # for jupyter notebook
+# args = parser.parse_args(args=['--resume', './model/selfsup/simclr/SimCLR-resnet18-quantum_True-backend_qasm_simulator-classes_600--ansatz_sim_circ_14_half-netwidth_8-nlayers_2-nsweeps_1-activation_null-shots_100-epochsize_4800-bsize_128-tepochs_15_7/checkpoint_0010_0036.path.tar', '--gpu', '0', '-q', '--q_backend', 'qasm_simulator', '--q_ansatz', 'sim_circ_14_half', '-b', '128', '-w', '8', '--save-batches', '--epochs', '15', '--epoch-size', '4800'])
 
 # --------------------------------------------------------------------------------
 
@@ -172,13 +172,9 @@ class fingerprintDataset(Dataset):
         self.targets = self.img_labels.iloc[:, 1] # label of the dataset
         self.target_transform = target_transform
         img_path = os.path.join(self.img_dir, self.img_labels.iloc[0, 0])
-        image = cv2.imread(img_path)
-        self.data = np.empty((len(self.img_labels), *image.shape), dtype=np.uint8)
-        for i in range(len(self.img_labels)):
-            self.data[i] = image
     def __getitem__(self, idx):
         img_path = os.path.join(self.img_dir, self.img_labels.iloc[idx, 0])
-        image = cv2.imread(img_path)
+        image = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
         label = self.img_labels.iloc[idx, 1]
         if self.transform:
             image = self.transform(image)
@@ -272,7 +268,7 @@ def main_worker(gpu, ngpus_per_node, args):
     else:
         print('=> Training with CPU.')
 
-    torchsummary.summary(model, (3, 103, 96))
+    torchsummary.summary(model, (1, 326, 350))
 
     # define loss function (criterion) and optimizer
     criterion = None
@@ -299,24 +295,26 @@ def main_worker(gpu, ngpus_per_node, args):
     cudnn.benchmark = True
 
 
-    annotations_file = os.path.join("../", "kaggle_fingerprint", "kaggle_training_fingerprint_annotations.csv")
-    img_dir = os.path.join("../", "kaggle_fingerprint", "SOCOFing", "All")
+    #annotations_file = os.path.join("kaggle_fingerprint", "kaggle_small_training_fingerprint_annotations.csv")
+    annotations_file = os.path.join("kaggle_fingerprint", "Enhanced_and_cannied", "training_cannied_fingerprint_annotations.csv")
+    #img_dir = os.path.join("kaggle_fingerprint", "SOCOFing", "All")
+    img_dir = os.path.join("kaggle_fingerprint", "Enhanced_and_cannied", "Cannied")
    
     # Normalization for SOCOFing Fingerprint dataset
-    normalize = transforms.Normalize(mean=[0.5071, 0.5071, 0.5071],
-                                     std=[0.4107, 0.4107, 0.4107])
+    normalize = transforms.Normalize(mean=[0.2028],
+                                     std=[0.2943])
 
     augmentation = [
         transforms.ToPILImage(), # to PIL format
-        transforms.RandomResizedCrop(32, scale=(0.2, 1.0)),
-        transforms.RandomApply([
-            transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)  # not strengthened
-        ], p=0.8),
-        transforms.RandomGrayscale(p=0.2),
+        transforms.RandomResizedCrop(300, scale=(0.2, 1.0)),
+#         transforms.RandomApply([
+#             transforms.ColorJitter(0.4, 0.4, 0.4, 0.1)  # not strengthened
+#         ], p=0.8),
+        # transforms.RandomGrayscale(p=0.2),
         # transforms.RandomApply([moco.loader.GaussianBlur([.1, 2.])], p=0.5),
         transforms.RandomHorizontalFlip(p=0.5),
         transforms.ToTensor(),
-        normalize
+        #normalize
     ]
     
     transform = transforms.Compose(augmentation)
@@ -367,14 +365,14 @@ def main_worker(gpu, ngpus_per_node, args):
 
     for epoch in range(args.start_epoch, args.epochs):
         adjust_learning_rate(optimizer, epoch, args)
-
+    
         # train for one epoch
         train(train_loader, model, model_path, criterion, optimizer, epoch, args, repr_network_params, dhs_list,
                 dhs_positive_pair_list,
                 overlap_list, loss_list)
         
-        train_loss_list.append(np.mean(loss_list))
-        train_acc2_list.append(np.mean(batch_acc2_list))
+        #train_loss_list += loss_list
+        #train_acc2_list += batch_acc2_list 
 
         if not args.save_batches:
             fname = 'checkpoint_{:04d}.path.tar'.format(epoch)
@@ -408,8 +406,8 @@ def train(train_loader, model, model_path, criterion, optimizer, epoch, args, re
     model.train()
 
     end = time.time()
-
-    batch_acc2_list.clear()
+    global train_loss_list
+    global train_acc2_list
     
     for batch_index, (images, _) in enumerate(train_loader):
         # measure data loading time
@@ -447,6 +445,7 @@ def train(train_loader, model, model_path, criterion, optimizer, epoch, args, re
 
         loss = (- torch.log(pos_sim / sim_matrix.sum(dim=-1))).mean()
         loss_list.append(loss.item())
+        train_loss_list += [loss.item()]
 
         # to compute acc, concate the positive and negatives
         M = torch.cat([pos_sim.view(2 * args.batch_size, 1), sim_matrix], dim=-1)
@@ -454,7 +453,8 @@ def train(train_loader, model, model_path, criterion, optimizer, epoch, args, re
         losses.update(loss.item(), images[0].size(0))
         top1.update(acc1[0], 2 * args.batch_size)
         top2.update(acc2[0], 2 * args.batch_size)
-        batch_acc2_list.append(top2.avg.item())
+        #batch_acc2_list.append(top2.avg.item())
+        train_acc2_list += [top2.avg.item()]
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
@@ -478,6 +478,8 @@ def train(train_loader, model, model_path, criterion, optimizer, epoch, args, re
                     'arch': args.arch,
                     'state_dict': model.state_dict(),
                     'optimizer': optimizer.state_dict(),
+                    'loss': loss_list,
+                    'acc2': train_acc2_list
                 }
                 save_checkpoint(ckpt, is_best=False, filename=checkpoint_name)
 
@@ -551,7 +553,7 @@ def train(train_loader, model, model_path, criterion, optimizer, epoch, args, re
 
                 else:
                     gradients = []
-                np.save(metrics_name, np.array([loss_list, repr_network_params, gradients, dhs_list,
+                np.save(metrics_name, np.array([loss_list, train_acc2_list, repr_network_params, gradients, dhs_list,
                                                 dhs_positive_pair_list, overlap_list], dtype=object))
 
 
@@ -656,31 +658,33 @@ if __name__ == '__main__':
 
 
 # +
-def print_loss(train_loss):
-    plt.xlabel('Epoch')
+def save_loss(train_loss, save_path):
+    plt.clf()  # Clear the figure
+    plt.xlabel('Training Batches')
     plt.ylabel('Loss')
     plt.title("Loss")
     plt.plot(train_loss,  label = "Training") # training loss curve
     #plt.plot(test_loss,  label = "Validation") # training loss curve
     plt.legend(loc = 'upper left')
-    fig = plt.gcf() # get current figure
-    plt.show()
-    return fig
+    #fig = plt.gcf() # get current figure
+    #plt.show()
+    plt.savefig(save_path, bbox_inches='tight')
     
-def print_acc(train_acc):
-    plt.xlabel('Epoch')
+def save_acc(train_acc, save_path):
+    plt.clf()  # Clear the figure
+    plt.xlabel('Training Batches')
     plt.ylabel('Accuracy(%)')
     plt.title("Accuracy")
     plt.plot(train_acc,  label = "Training") # training loss curve
     #plt.plot(test_acc,  label = "Validation") # training loss curve
     plt.legend(loc = 'upper left')
-    fig = plt.gcf() # get current figure
-    plt.show()
-    return fig
+    #fig = plt.gcf() # get current figure
+    #plt.show()
+    plt.savefig(save_path, bbox_inches='tight')
     
 def save_result_fig(args, name, version=0):
-    result_path = os.path.join('results', "Allen's Result", "SOCOFing_Fingerprint",
-                                  'epochsize_{}-bsize_{}-tepochs_{}_{}_{}_Fig.jpg'.format(args.epoch_size, args.batch_size, args.epochs, name, version))
+    result_path = os.path.join('results', "Allen's Result", "SOCOFing_Fingerprint", "SimCLR", "Training",
+                                  'quantum_{}-{}-epochsize_{}-bsize_{}-tepochs_{}_{}_{}_Fig.jpg'.format(args.quantum, args.arch, args.epoch_size, args.batch_size, args.epochs, name, version))
     if os.path.exists(result_path):
         return save_result_fig(args, name, version+1)
     else:    
@@ -688,15 +692,13 @@ def save_result_fig(args, name, version=0):
 
 
 # +
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 
-fig_loss = print_loss(train_loss_list)
+# save loss and acc figure
 fig_loss_path = save_result_fig(args, "Loss")
-fig_acc = print_acc(train_acc2_list)
+fig_loss = save_loss(train_loss_list, fig_loss_path)
 fig_acc_path = save_result_fig(args, "Acc")
- # 將訓練結果存起來
-fig_loss.savefig(fig_loss_path, bbox_inches='tight')
-fig_acc.savefig(fig_acc_path, bbox_inches='tight')
+fig_acc = save_acc(train_acc2_list, fig_acc_path)
 # -
 
 
