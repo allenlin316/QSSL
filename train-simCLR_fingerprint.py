@@ -156,8 +156,9 @@ parser.add_argument("--exp_config", default="yaspi_train.json", type=Path)
 train_acc2_list = []
 train_loss_list = []
 # python train_simclr.py -q --q_backend qasm_simulator --q_ansatz sim_circ_14_half -w 8 --classes 5 --save-batches --epochs 2
-args = parser.parse_args(args=['--gpu', '0', '--lr', '1e-3', '--epochs', '15', '-b', '128', '--save-batches', '-w', '8', '--epoch-size', '4800']) # for jupyter notebook
-# args = parser.parse_args(args=['--resume', './model/selfsup/simclr/SimCLR-resnet18-quantum_True-backend_qasm_simulator-classes_600--ansatz_sim_circ_14_half-netwidth_8-nlayers_2-nsweeps_1-activation_null-shots_100-epochsize_4800-bsize_128-tepochs_15_7/checkpoint_0010_0036.path.tar', '--gpu', '0', '-q', '--q_backend', 'qasm_simulator', '--q_ansatz', 'sim_circ_14_half', '-b', '128', '-w', '8', '--save-batches', '--epochs', '15', '--epoch-size', '4800'])
+# args = parser.parse_args(args=['--gpu', '0', '--lr', '1e-3', '--epochs', '15', '-b', '128', '--save-batches', '-w', '8', '--epoch-size', '4800']) # for jupyter notebook
+args = parser.parse_args(args=['--gpu', '0', '-q', '--q_backend', 'qasm_simulator', '--q_ansatz', 'sim_circ_14_half', '-b', '128', '-w', '8', '--save-batches', '--epochs', '15', '--epoch-size', '4800'])
+
 
 # --------------------------------------------------------------------------------
 
