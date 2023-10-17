@@ -1,10 +1,20 @@
-# [Quantum Self-Supervised Learning](https://arxiv.org/abs/2103.14653)
+# [Fingerprint Recognition Application by QSSL](https://drive.google.com/file/d/16863qm8BkkQ0m9mzlO3Egb69cDGrhXv_/view?usp=drive_link)
 
-This repository contains the code used to generate results in https://arxiv.org/abs/2103.14653. This is achieved using a
-PyTorch implementation of [SimCLR](https://arxiv.org/abs/2002.05709) based on https://github.com/facebookresearch/moco,
-adapted so that the encoder consists of ResNet-18 followed by a representation network.
+This is achieved using a PyTorch implementation of [SimCLR](https://arxiv.org/abs/2002.05709) based on https://github.com/facebookresearch/moco,
+adapted so that the encoder consists of ResNet-18 followed by a representation network. Also, the QSSL method reference to [QSSL](https://github.com/bjader/QSSL)
 
-![image](https://user-images.githubusercontent.com/14994219/120330295-9569c100-c2e4-11eb-8710-b4c2e284676a.png)
+* Fingerprint Preprocessing
+
+<img style="display: block; margin-left: auto; margin-right: auto;" alt="fingerprint image preprocessing" src="https://hackmd.io/_uploads/Hywnrm3Wa.png">
+
+* Training Architecture(adapted from [QSSL](https://github.com/bjader/QSSL))
+
+<img style="display: block; margin-left: auto; margin-right: auto; width: 80%;" alt="fingerprint image preprocessing" src="https://hackmd.io/_uploads/r1PJ373Wa.png">
+
+### Fingerprint Image Preprocessing
+1. Fingerprint Enhancement(Gabor Filter): Python implementation reference to author Utkarsh-Deshmukh [Fingerprint-Enhancement-Python](https://github.com/Utkarsh-Deshmukh/Fingerprint-Enhancement-Python)
+    * **NOTE** must clone the [Fingerprint-Enhancement-Python](https://github.com/Utkarsh-Deshmukh/Fingerprint-Enhancement-Python) first
+3. Fingerprint Canny Edge Detection
 
 ### Self-supervised Training with Classical Representation Network
 
@@ -49,16 +59,9 @@ Optional arguments:
 --pretrained     path_to_self_sup_model
 ```
 
-Running the above code block for each checkpoint in the trained model will produce results comparable to the purple line
-in Fig. 5 of [Quantum Self-Supervised Learning](https://arxiv.org/pdf/2103.14653.pdf)
 
-![image](https://user-images.githubusercontent.com/14994219/120349125-bf77af00-c2f5-11eb-957e-853c9e5e9f53.png)
+## Reference
 
-Producing the orange line can be done by changing `--q_backend qasm_simulator` to `--q_backend statevector_simulator`.
-
-## Usage and citation
-
-We kindly ask any publication, whitepaper or project using this code to cite:
 ```
 Jaderberg, B., Anderson, L.W., Xie, W., Albanie, S., Kiffner, M. and Jaksch, D., 2021. Quantum Self-Supervised Learning. arXiv preprint arXiv:2103.14653.
 ```
