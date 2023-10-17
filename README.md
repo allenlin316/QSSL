@@ -4,6 +4,7 @@ This is achieved using a PyTorch implementation of [SimCLR](https://arxiv.org/ab
 adapted so that the encoder consists of ResNet-18 followed by a representation network. Also, the QSSL method reference to [QSSL](https://github.com/bjader/QSSL)
 
 * Fingerprint Preprocessing
+    * dataset from [Sokoto Coventry Fingerprint Dataset(kaggle)](https://www.kaggle.com/datasets/ruizgara/socofing)
 
 <img style="display: block; margin-left: auto; margin-right: auto;" alt="fingerprint image preprocessing" src="https://github.com/allenlin316/QSSL/assets/79969875/e6fc9e3b-566d-4567-ac7a-a1cc68c6cb0a">
 
