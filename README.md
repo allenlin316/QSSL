@@ -9,8 +9,7 @@ adapted so that the encoder consists of ResNet-18 followed by a representation n
 <img style="display: block; margin-left: auto; margin-right: auto;" alt="fingerprint image preprocessing" src="https://github.com/allenlin316/QSSL/assets/79969875/e6fc9e3b-566d-4567-ac7a-a1cc68c6cb0a">
 
 * Training Architecture(adapted from [QSSL](https://github.com/bjader/QSSL))
-
-<img style="display: block; margin-left: auto; margin-right: auto; width: 80%;" alt="fingerprint image preprocessing" src="https://github.com/allenlin316/QSSL/assets/79969875/2e2a849b-af15-4cfe-92a0-d0a15b787b13">
+<img style="display: block; margin-left: auto; margin-right: auto; width: 80%;" alt="fingerprint image preprocessing" src="https://github.com/allenlin316/QSSL/assets/79969875/d91016f7-7284-431f-a690-dd28bd1d414d">
 
 ### Fingerprint Image Preprocessing
 1. Fingerprint Enhancement(Gabor Filter): Python implementation reference to author Utkarsh-Deshmukh [Fingerprint-Enhancement-Python](https://github.com/Utkarsh-Deshmukh/Fingerprint-Enhancement-Python)
